@@ -161,31 +161,60 @@ function profileBrief(){
   return `Athlete: ${p.sport||"?"} ${p.position||""}, level ${p.level}, state ${p.state||"?"}, age ${age()??"unknown"} (${isMinor()?"MINOR":"adult"}). Priorities 0-10: ${WEIGHTS.map(([k,l])=>l+" "+w[k]).join(", ")}. Won't work with: ${p.never||"none listed"}. Wants to be known for: ${p.knownFor||"—"}. Advice style: ${p.advice||"—"}.`;
 }
 const GUARD=`You are an advisory assistant inside an athlete-representation firm's app. You are not a lawyer or financial adviser; say that anything legal or financial must be confirmed by the athlete's attorney, registered agent or school compliance office. Be plain-spoken, short, specific. If the athlete is a minor, note that a parent or legal guardian must be involved in signing. Rules context as of late September 2026: D-I athletes must report third-party NIL deals of $600+ to NIL Go (College Sports Commission) within five business days; deals with associated entities (boosters, collectives) are reviewed for valid business purpose and a reasonable range of compensation; the federal Protect College Sports Act passed the Senate Sept 28, 2026 (one transfer without losing eligibility, 5% agent fee cap, agent registration) but is NOT law unless the House passes it. High school NIL rules vary by state association.`;
+const TXT_RULES=`Reply in plain text only. No JSON, no code, no tables. Use exactly these labeled lines, short and plain:
+Verdict: VERDICTS
+Summary: two short sentences.
+Watch out for:
+- one risk per line, in plain words
+Ask for:
+- one change to request per line
+Questions to ask:
+- one question per line
+Keep the whole answer under 180 words.`;
+function parseVerdict(t,opts){const m=String(t).match(/verdict\s*:\s*([^\n]+)/i);const v=(m?m[1]:"").toLowerCase();return opts.find(o=>v.includes(o))||""}
+function cleanAgent(t){return String(t||"").replace(/```[a-z]*|```/g,"").replace(/^\s*verdict\s*:[^\n]*\n?/im,"").trim()}
 async function runAgent(key){
   if(!hasAI())return;
-  const ctl=new AbortController();busy[key]={ctl,msg:"Thinking… this can take up to a minute."};render();
+  const ctl=new AbortController();busy[key]={ctl,msg:S.ai.enabled&&AI.state!=="ready"?"Starting private AI. The first start can take up to a minute.":"Scout is reading… this can take up to a minute."};render();
   try{
-    let prompt,opts={signal:ctl.signal};
+    let msgs,opts={signal:ctl.signal},target,verdicts;
     if(key.startsWith("offer:")){
-      const o=S.offers.find(x=>x.id===key.slice(6));
-      prompt=`${GUARD}\n\n${profileBrief()}\n\nAnalyze this offer for the athlete. Reply with only JSON: {"summary": string (2 sentences), "whatYouGet": string, "keyTerms":[{"term":string,"plain":string,"rating":"good"|"watch"|"risk"}], "redFlags":[string], "askForChanges":[string], "questionsToAsk":[string], "complianceNotes":[string], "fit": string (how it fits their priorities), "verdict": "looks reasonable"|"negotiate first"|"high risk"}. Max 6 items per list.\n\nOffer title: ${o.title}\nFrom: ${o.from}\nType: ${o.type}\nStated value: ${o.value}\nTerm years: ${o.years}\n\nOFFER TEXT:\n${String(o.text||"(no text — see image)").slice(0,MAXDOC())}`;
+      const o=S.offers.find(x=>x.id===key.slice(6));target=o;verdicts=["looks reasonable","negotiate first","high risk"];
+      msgs=[{role:"system",content:`${GUARD}\n\n${profileBrief()}\n\n${TXT_RULES.replace("VERDICTS",verdicts.join(" / "))}`},
+        {role:"user",content:`Review this offer for me.\nTitle: ${o.title}\nFrom: ${o.from||"unknown"}\nType: ${o.type}\nStated value: ${o.value||"unknown"}\nTerm: ${o.years||"?"} years\nRisky terms already found: ${(o.flags?.found||[]).map(f=>f.label).join(", ")||"none"}\n\nOFFER TEXT:\n${String(o.text||"(no text; see photo)").slice(0,MAXDOC())}`}];
       if(!o.text&&images.get(o.id)&&sampleImages)opts.images=[images.get(o.id)];
-      o.analysis=await aiJSON(prompt,opts);
     } else if(key.startsWith("agency:")){
-      const a=S.agencies.find(x=>x.id===key.slice(7));
-      prompt=`${GUARD}\n\n${profileBrief()}\n\nAudit this sports agency for the athlete. Reply with only JSON: {"summary":string,"strengths":[string],"concerns":[string],"feeCheck":string,"conflictCheck":string,"questionsToAsk":[string],"recommendation":"keep"|"renegotiate"|"look elsewhere"|"need more info"}. Max 6 items per list.\n\nAgency: ${a.name}\nCurrent agency: ${a.current?"yes":"no"}\nState registration: ${a.reg}\nFee: ${a.fee}%\nServices: ${a.services.join(", ")||"none listed"}\nConflicts of interest: ${a.conflicts}\nNotice to leave (days): ${a.notice}\nFees owed after leaving (months): ${a.tail}\nNotes: ${a.notes||"—"}\n\nREPRESENTATION AGREEMENT TEXT:\n${String(a.agreement||"(not uploaded)").slice(0,MAXDOC())}`;
-      a.analysis=await aiJSON(prompt,opts);
+      const a=S.agencies.find(x=>x.id===key.slice(7));target=a;verdicts=["keep","renegotiate","look elsewhere","need more info"];
+      msgs=[{role:"system",content:`${GUARD}\n\n${profileBrief()}\n\n${TXT_RULES.replace("VERDICTS",verdicts.join(" / "))}`},
+        {role:"user",content:`Audit this sports agency for me.\nAgency: ${a.name}\nCurrent agency: ${a.current?"yes":"no"}\nState registration: ${a.reg}\nFee: ${a.fee}%\nServices: ${a.services.join(", ")||"none listed"}\nConflicts of interest: ${a.conflicts}\nNotice to leave: ${a.notice} days\nFees after leaving: ${a.tail} months\nNotes: ${a.notes||"none"}\n\nREPRESENTATION AGREEMENT:\n${String(a.agreement||"(not uploaded)").slice(0,MAXDOC())}`}];
     } else if(key==="post"){
-      const p=S.post;
-      const accts=S.socials.map(s=>s.platform+" "+s.handle+" ("+(s.followers||"?")+" followers)").join("; ")||"none";
-      prompt=`${GUARD}\n\n${profileBrief()}\nAccounts: ${accts}\n\nReview this planned social post before the athlete publishes it. Consider NIL rules, school/team policies, commonly prohibited categories (betting, alcohol, cannabis, tobacco/vape, adult content), FTC sponsored-content disclosure (#ad), school logos and uniforms, teammates' consent, and reputation with brands, coaches and recruiters. Reply with only JSON: {"verdict":"good to post"|"change first"|"don't post","reasons":[string],"fixes":[string],"disclosure":string,"bestPlatforms":[string],"rewrite":string}.\nThe athlete's signed-deal rules: ${JSON.stringify(dealRules().map(r=>({deal:r.from,rule:r.text,until:r.until})))}\n\nPhoto contains (tagged by athlete): ${(p.tags||[]).join(", ")||"not tagged"}. Text read from the photo: ${p.photoText||"none"}\nSponsored: ${p.sponsored}\nBrand category: ${p.category||"none"}\nCaption:\n${p.caption||"(no caption; see image)"}`;
+      const p=S.post;target=p;verdicts=["good to post","change first","don't post"];
+      msgs=[{role:"system",content:`${GUARD}\n\n${profileBrief()}\n\n${TXT_RULES.replace("VERDICTS",verdicts.join(" / "))}`},
+        {role:"user",content:`Check my post before I publish it. Consider my signed deals, school rules, #ad disclosure, school logos and uniforms, teammates, and banned categories (betting, alcohol, vapes, cannabis).\nMy signed-deal rules: ${dealRules().map(r=>r.from+": "+r.text).join("; ")||"none"}\nIn the photo (I tagged): ${(p.tags||[]).join(", ")||"not tagged"}\nText read from the photo: ${p.photoText||"none"}\nSponsored: ${p.sponsored}\nBrand category: ${p.category||"none"}\nCaption: ${p.caption||"(none)"}`}];
       if(images.get("post")&&sampleImages)opts.images=[images.get("post")];
-      p.analysis=await aiJSON(prompt,opts);
     }
-    save();toast("Agent analysis ready");
+    const raw=await aiChat(msgs,opts);
+    const text=cleanAgent(raw);if(!text)throw {code:"empty_completion"};
+    target.analysis={text,verdict:parseVerdict(raw,verdicts),key,at:Date.now()};
+    save();buzz();toast("Scout's review is ready");
+    if(S.askPrefs.speak&&S.askPrefs.earbuds)speak(text);
   }catch(e){ if(e&&e.code!=="cancelled")toast(errCopy(e)); if(e&&["not_granted","sampling_disabled","not_declared","capability_disabled","capability_removed"].includes(e.code)){sampleState="off";sampleFn=null} }
   finally{delete busy[key];render()}
 }
+function buzz(){
+  if(S&&S.askPrefs&&S.askPrefs.buzz===false)return;
+  try{if(navigator.vibrate&&navigator.vibrate([40,70,40]))return}catch(e){}
+  try{let l=document.getElementById("hap");if(!l){const i=document.createElement("input");i.type="checkbox";i.setAttribute("switch","");i.id="hap-i";i.tabIndex=-1;i.setAttribute("aria-hidden","true");i.style.cssText="position:fixed;left:-20px;top:0;width:1px;height:1px;opacity:0;pointer-events:none";l=document.createElement("label");l.id="hap";l.htmlFor="hap-i";l.setAttribute("aria-hidden","true");l.style.cssText="position:fixed;left:-20px;top:0;width:1px;height:1px;overflow:hidden";document.body.append(i,l)}l.click()}catch(e){}
+}
+function verdictClass(v){v=String(v||"");if(/reasonable|keep|good to post/.test(v))return"good";if(/high risk|look elsewhere|don't post/.test(v))return"bad";return"warn"}
+function fmtAgent(t){return String(t).split("\n").map(l=>{const x=l.trim();if(!x)return"";const b=x.match(/^[-•*]\s*(.*)$/);if(b)return `<div class="ab">${esc(b[1])}</div>`;const h=x.match(/^([A-Za-z][A-Za-z ']{1,24}):\s*(.*)$/);if(h)return `<div class="ah"><b>${esc(h[1])}:</b> ${esc(h[2])}</div>`;return `<div>${esc(x)}</div>`}).join("")}
+function agentView(a,title){
+  return `<div class="agent"><div class="row between"><h4>${title}</h4>${a.verdict?`<span class="chip ${verdictClass(a.verdict)}">${esc(a.verdict)}</span>`:""}</div>
+  <div class="agenttext">${fmtAgent(a.text)}</div>
+  <div class="row"><button data-act="speak-analysis" data-key="${esc(a.key||"")}">Play</button></div>
+  <p class="small muted">Draft from Scout. Your attorney, agent or compliance office has the final word.</p></div>`;
+}
+function analysisByKey(k){if(k==="post")return S.post.analysis;if(k.startsWith("offer:"))return (S.offers.find(x=>x.id===k.slice(6))||{}).analysis;if(k.startsWith("agency:"))return (S.agencies.find(x=>x.id===k.slice(7))||{}).analysis}
 
 /* ---------- file intake ---------- */
 function loadScript(src){return new Promise((res,rej)=>{if(document.querySelector(`script[src="${src}"]`))return res();const s=document.createElement("script");s.src=src;s.onload=res;s.onerror=()=>rej(new Error("load"));document.head.appendChild(s)})}
@@ -324,6 +353,7 @@ function offerCard(o){
 }
 const L=(t,arr)=>arr&&arr.length?`<div><b class="small">${t}</b><ul class="clean small">${arr.map(x=>`<li>${esc(x)}</li>`).join("")}</ul></div>`:"";
 function analysisOffer(a){
+  if(a.text)return agentView(a,"Scout's review");
   const v=a.verdict||"";const cls=v==="looks reasonable"?"good":v==="high risk"?"bad":"warn";
   return `<div class="agent"><div class="row between"><h4>Agent analysis</h4>${v?`<span class="chip ${cls}">${esc(v)}</span>`:""}</div>
   <p>${esc(a.summary||"")}</p>${a.whatYouGet?`<p class="small"><b>What you get:</b> ${esc(a.whatYouGet)}</p>`:""}
@@ -384,7 +414,7 @@ function agencyCard(a){
   ${a.notes?`<p class="small muted">${esc(a.notes)}</p>`:""}
   <div class="row"><label class="btn" for="ag-file-${a.id}">${a.agreement?"Replace agreement":"Upload representation agreement"}</label><input type="file" id="ag-file-${a.id}" data-agreement="${a.id}" accept=".pdf,.docx,.txt,.md" hidden>${a.agreementName?`<span class="small muted">${esc(a.agreementName)} · ${(a.agreementFlags?.found||[]).length} terms flagged</span>`:""}</div>
   ${(a.agreementFlags?.found||[]).length?`<details><summary>Agreement terms found</summary><div class="stack" style="margin-top:8px">${a.agreementFlags.found.map(x=>`<div class="flagline"><span class="chip ${x.sev==="info"?"":x.sev}">${x.sev==="bad"?"Risk":"Review"}</span><div class="small"><b>${esc(x.label)}.</b> <span class="snip">“${esc(x.snip)}”</span></div></div>`).join("")}</div></details>`:""}
-  ${an?`<div class="agent"><div class="row between"><h4>Agent audit</h4>${an.recommendation?`<span class="chip ${an.recommendation==="keep"?"good":an.recommendation==="look elsewhere"?"bad":"warn"}">${esc(an.recommendation)}</span>`:""}</div><p>${esc(an.summary||"")}</p><div class="grid2">${L("Strengths",an.strengths)}${L("Concerns",an.concerns)}${L("Questions to ask",an.questionsToAsk)}</div>${an.feeCheck?`<p class="small"><b>Fees:</b> ${esc(an.feeCheck)}</p>`:""}${an.conflictCheck?`<p class="small"><b>Conflicts:</b> ${esc(an.conflictCheck)}</p>`:""}</div>`:""}
+  ${an&&an.text?agentView(an,"Scout's audit"):an?`<div class="agent"><div class="row between"><h4>Agent audit</h4>${an.recommendation?`<span class="chip ${an.recommendation==="keep"?"good":an.recommendation==="look elsewhere"?"bad":"warn"}">${esc(an.recommendation)}</span>`:""}</div><p>${esc(an.summary||"")}</p><div class="grid2">${L("Strengths",an.strengths)}${L("Concerns",an.concerns)}${L("Questions to ask",an.questionsToAsk)}</div>${an.feeCheck?`<p class="small"><b>Fees:</b> ${esc(an.feeCheck)}</p>`:""}${an.conflictCheck?`<p class="small"><b>Conflicts:</b> ${esc(an.conflictCheck)}</p>`:""}</div>`:""}
   <div class="row between"><div class="row">${agentButton(key,an?"Re-run audit":"Run agent audit")}</div><div class="row"><button class="ghost" data-act="toggle-cur" data-id="${a.id}">${a.current?"Mark as considering":"Mark as current"}</button><button class="ghost" data-act="del-agency" data-id="${a.id}">Remove</button></div></div></article>`;
 }
 function vCircle(){
@@ -651,7 +681,7 @@ function vAsk(){
   const sugg=["What's due this week?","Can I post a pic with free headphones?","How much should I set aside for taxes?","Which school fits me best?","What happens if I transfer?"];
   return `<section class="sec-head"><span class="eyebrow">Ask</span><span data-ai-status></span><div class="row" style="gap:14px"><span class="orb${askBusy?" live":""}" aria-hidden="true"><i></i><i></i><i></i><i></i></span><div class="stack" style="gap:2px"><h1>Ask Scout</h1><span class="small muted">Talk or type. Answers use your deals, schools and profile.</span></div></div></section>
   ${askTipShown?"":`<div class="panel privacy"><div class="row between"><b>Before you ask</b><button data-act="tip-ok">Got it</button></div><p class="small">Make sure no one is looking at your screen or can hear your phone. Answers can include your money, deals and grades.</p></div>`}
-  <div class="row"><label class="toggle"><input type="checkbox" id="ask-speak" ${P.speak?"checked":""}> Read answers aloud</label><label class="toggle"><input type="checkbox" id="ask-ear" ${P.earbuds?"checked":""}> I'm using earbuds</label></div>
+  <div class="row"><label class="toggle"><input type="checkbox" id="ask-speak" ${P.speak?"checked":""}> Read answers aloud</label><label class="toggle"><input type="checkbox" id="ask-ear" ${P.earbuds?"checked":""}> I'm using earbuds</label><label class="toggle"><input type="checkbox" id="ask-buzz" ${P.buzz!==false?"checked":""}> Vibrate when ready</label></div>
   ${P.speak&&!P.earbuds?`<p class="small warnline">Speaker is on. Answers about money, deals or grades won't play aloud until you tap Play.</p>`:""}
   ${hasAI()?"":`<p class="small muted">Short answers from your data only. Turn on private AI in <a href="#me">Me</a> for full conversations.</p>`}
   <div class="chat">${S.chat.map((m,i)=>`<div class="msg ${m.role==="user"?"me":"ai"}${m.err?" err":""}">${esc(m.text)}${m.role!=="user"&&!m.err?`<div class="msgtools">${m.sens&&P.speak&&!P.earbuds?`<span class="small">Not played aloud: private details.</span>`:""}<button class="ghost" data-act="speak" data-i="${i}">Play</button></div>`:""}</div>`).join("")}
@@ -1031,7 +1061,7 @@ function vSocial(){
    <label class="f">Is it sponsored?<select id="post-sp"><option value="no" ${p.sponsored==="no"?"selected":""}>No</option><option value="yes" ${p.sponsored==="yes"?"selected":""}>Yes, paid or gifted</option></select></label>
    <label class="f">Brand category<input id="post-cat" value="${esc(p.category)}" placeholder="e.g. sports drink, local restaurant"></label></div>
    <div class="stack">${local.map(x=>`<div class="flagline"><span class="chip ${x.sev}">${x.sev==="bad"?"Stop":"Review"}</span><span class="small"><b>${esc(x.label)}.</b> ${esc(x.why)}</span></div>`).join("")}${ruleHits.map(r=>`<div class="flagline"><span class="chip bad">Deal</span><span class="small"><b>${esc(r.from)}:</b> ${esc(r.text)}${r.until?" until "+esc(r.until):""}.</span></div>`).join("")}${needsAd?`<div class="flagline"><span class="chip bad">Fix</span><span class="small"><b>Missing disclosure.</b> Sponsored or gifted posts need #ad or the platform's paid-partnership label.</span></div>`:""}${any&&!local.length&&!needsAd&&!ruleHits.length?`<div class="flagline"><span class="chip good">Clear</span><span class="small">No conflicts found with your deals or the common rules.</span></div>`:""}</div>
-   ${p.analysis?`<div class="agent"><div class="row between"><h4>Scout's check</h4><span class="chip ${p.analysis.verdict==="good to post"?"good":p.analysis.verdict==="don't post"?"bad":"warn"}">${esc(p.analysis.verdict||"")}</span></div><div class="grid2">${L("Why",p.analysis.reasons)}${L("Fixes",p.analysis.fixes)}</div>${p.analysis.rewrite?`<p class="small"><b>Suggested caption:</b> ${esc(p.analysis.rewrite)}</p>`:""}</div>`:""}
+   ${p.analysis&&p.analysis.text?agentView(p.analysis,"Scout's check"):p.analysis?`<div class="agent"><div class="row between"><h4>Scout's check</h4><span class="chip ${p.analysis.verdict==="good to post"?"good":p.analysis.verdict==="don't post"?"bad":"warn"}">${esc(p.analysis.verdict||"")}</span></div><div class="grid2">${L("Why",p.analysis.reasons)}${L("Fixes",p.analysis.fixes)}</div>${p.analysis.rewrite?`<p class="small"><b>Suggested caption:</b> ${esc(p.analysis.rewrite)}</p>`:""}</div>`:""}
    <div class="row">${agentButton("post","Ask Scout to review it")}${any?`<button class="ghost" data-act="post-clear">Start a new post</button>`:""}</div></div>
   <details class="panel"><summary>Your accounts (${S.socials.length})</summary><div class="stack" style="margin-top:10px">
    ${S.socials.map(s=>{const g=PLATFORM_GUIDE[s.platform]||PLATFORM_GUIDE.Other;return `<div class="row between"><span><b>${esc(s.platform)}</b> ${esc(s.handle)} <span class="chip ${g[1]}">${g[0]}</span></span><button class="ghost" data-act="del-social" data-id="${s.id}">Remove</button></div>`}).join("")}
@@ -1055,7 +1085,7 @@ async function sendAsk(q){
       ans=await aiChat(msgs,{signal:askBusy.ctl.signal,onText:({text})=>{const b=$("#ask-live");if(b)b.textContent=text}});
     }else ans=localAnswer(q);
     ans=String(ans||"").trim()||"I didn't catch that. Try asking another way.";
-    const sens=SENS.test(q+" "+ans);S.chat.push({role:"assistant",text:ans,sens});
+    const sens=SENS.test(q+" "+ans);S.chat.push({role:"assistant",text:ans,sens});buzz();
     if(S.askPrefs.speak&&(!sens||S.askPrefs.earbuds))speak(ans);
   }catch(e){if(e&&e.code!=="cancelled")S.chat.push({role:"assistant",text:errCopy(e),err:true})}
   finally{askBusy=null;save();render();const l=$("#chat-end");if(l)l.scrollIntoView({block:"end"})}
@@ -1160,6 +1190,7 @@ document.addEventListener("click",e=>{
   if(act==="ask-suggest"){sendAsk(b.dataset.q);return}
   if(act==="ask-stop"){askBusy?.ctl.abort();return}
   if(act==="ask-clear"){S.chat=[]}
+  if(act==="speak-analysis"){const a=analysisByKey(b.dataset.key||"");if(a&&a.text)speak(a.text);return}
   if(act==="speak"){const m=S.chat[Number(b.dataset.i)];if(m)speak(m.text);return}
   if(act==="mic"){startMic();return}
   if(act==="tip-ok"){askTipShown=true}
@@ -1193,6 +1224,7 @@ document.addEventListener("change",e=>{
   if(t.id==="post-photo"&&t.files[0]){setPostPhoto(t.files[0]);t.value="";return}
   if(t.id==="voice-sel"){S.voice.name=t.value;save();speak("This is how I'll sound.");return}
   if(t.id==="ask-speak"){S.askPrefs.speak=t.checked;save();render();return}
+  if(t.id==="ask-buzz"){S.askPrefs.buzz=t.checked;save();if(t.checked)buzz();return}
   if(t.id==="ask-ear"){S.askPrefs.earbuds=t.checked;save();render();return}
   if(t.id==="file-offers"&&t.files.length)return intakeOffers([...t.files]);
   if(t.dataset.agreement&&t.files[0])return intakeAgreement(t.dataset.agreement,t.files[0]);

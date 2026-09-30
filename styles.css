@@ -203,3 +203,5 @@ body.setup .shell{display:block}
 
 .toast{bottom:calc(92px + env(safe-area-inset-bottom,0px))!important;max-width:calc(100% - 32px);text-align:center}
 @media (min-width:960px){.toast{bottom:24px!important}}
+
+.agenttext{display:grid;gap:6px;line-height:1.45}.agenttext .ab{padding-left:16px;position:relative}.agenttext .ab::before{content:"";position:absolute;left:4px;top:.6em;width:5px;height:5px;border-radius:50%;background:var(--accent)}.agenttext .ah{margin-top:4px}
