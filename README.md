@@ -1,25 +1,18 @@
-# Athlete Advisory (prototype)
+# Athlete Advisory — working prototype (v2)
 
-A mobile-first prototype of an NIL and scholarship advisor for student athletes. One page, no build step.
+A mobile-first NIL and scholarship advisor for student athletes. Plain files, no build step, hosted on GitHub Pages.
 
-**Levels (switch with the Demo level menu):** Free · NIL add-on · University · NIL Deal Plus.
+## Install on iPhone
+Open the GitHub Pages link in **Safari** → Share → **Add to Home Screen**. New users go through a short setup.
 
-## Run it
-Open `index.html`, or host it with GitHub Pages: Settings → Pages → Deploy from branch → `main` / root.
-On a phone, open the Pages link and use Share → Add to Home Screen to install it like an app.
+## What's real in this version
+- **Setup for a new user**: profile, priorities, trusted circle, passcode and Face ID, private AI.
+- **Private AI with no key and no cost**: Scout runs a small language model on the device (WebLLM on WebGPU). It downloads once (about 0.7 GB on phone size) and then works offline. Needs iOS 26 Safari on iPhone, or a recent Chrome, Edge or Safari on a computer.
+- **Reads text from photos on the device** (Tesseract): offers, supplement labels, report cards, post photos.
+- **Documents**: real files (PDF, Word, photos) stored encrypted in the browser's database on this device, with an in-app viewer.
+- **Face ID / fingerprint**: uses the phone's built-in biometrics through passkeys. The app never sees face data. Passcode backup. Locks when you leave the app.
+- **Voice**: talk to Scout; answers read aloud in a calm British male voice when the device has one (Daniel on iPhone). Money and contract answers aren't read aloud unless earbuds are on.
+- Offers with risky-term detection and comparison, deal rules from signed contracts, post check with photos from your library, money and tax set-aside, schools, grades, trusted circle, guardian-approved sharing, and level previews (Free, NIL add-on, University, NIL Deal Plus) in Me → Plan.
 
-## What works in the browser
-- Offer upload (PDF, Word, text, photo) with instant risky-term detection and side-by-side comparison
-- Scan with the phone camera; supplement label check against a list of banned ingredients
-- Ask "Scout" by text or voice (browser speech), with privacy reminders
-- Deal rules from signed contracts, used in post checks
-- Money and tax set-aside, updates feed, trusted circle with relationship rules, guardian-approved sharing
-- Passcode lock plus Face ID or fingerprint unlock (device biometrics through passkeys)
-
-## AI
-Full answers need an Anthropic API key, pasted in Profile → AI connection. It is stored only in that browser.
-**Never commit an API key to this repository.** A production app keeps keys on a server.
-
-## Prototype limits
-Data is saved in the browser on this device only. Nothing here is legal, tax or financial advice.
-All names, deals, schools and agencies in the sample data are fictional.
+## Limits
+Data lives only on the device and browser where it was entered; clearing Safari website data erases it. The on-device model is small: it can be wrong, so every decision goes to your attorney, registered agent or school compliance office. Nothing here is legal, tax or financial advice.
